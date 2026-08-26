@@ -1,0 +1,1063 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
+<meta name="description" content="WeatherGPT — Conversational AI for Weather Forecasting, Alerts & Climate Information. SIH 2026 (SIH26068) prototype for the Ministry of Earth Sciences / India Meteorological Department. A browser-based, multilingual (English + Hindi) weather chatbot with voice input, real-time data from Open-Meteo APIs, IMD-style severe weather alerts, agricultural advisories, aviation briefings, and climate trend analysis. No server required — runs entirely in the browser.">
+<title>WeatherGPT — Conversational AI for Weather</title>
+<!--
+  WeatherGPT — Complete Single-File Prototype
+  ============================================
+  SIH 2026 — Problem Statement SIH26068
+  Ministry of Earth Sciences (MoES) · India Meteorological Department (IMD)
+  Theme: Disaster Management · Category: Software
+
+  This single HTML file contains the ENTIRE application:
+    1. Weather Data Service   (weather_service.py  → JS fetch calls to Open-Meteo API)
+    2. NLU Engine             (nlu.py              → JS intent classification + entity extraction)
+    3. Response Generator     (response_gen.py     → JS multilingual NL generation)
+    4. FastAPI App + Chat UI  (app.py              → HTML/CSS/JS UI)
+
+  No server needed — runs entirely in the browser.
+  Weather data: Open-Meteo API (free, no API key required).
+-->
+<style>
+:root {
+  --bg: #0f172a; --card: #1e293b; --accent: #38bdf8; --accent2: #818cf8;
+  --text: #f1f5f9; --muted: #94a3b8; --warn: #fbbf24; --danger: #f87171;
+  --success: #34d399; --input: #334155;
+}
+* { margin:0; padding:0; box-sizing:border-box; }
+body {
+  font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+  background: var(--bg); color: var(--text); min-height: 100vh;
+  display: flex; flex-direction: column;
+}
+.header {
+  background: linear-gradient(135deg, #1e3a5f, #0f172a);
+  padding: 16px 20px; border-bottom: 1px solid #334155;
+  display: flex; align-items: center; gap: 12px;
+  position: sticky; top: 0; z-index: 10;
+}
+.logo {
+  width: 42px; height: 42px; border-radius: 12px;
+  background: linear-gradient(135deg, var(--accent), var(--accent2));
+  display: flex; align-items: center; justify-content: center;
+  font-size: 24px; flex-shrink: 0;
+}
+.header h1 { font-size: 1.25rem; font-weight: 700; }
+.header .sub { font-size: 0.75rem; color: var(--muted); }
+.lang-toggle {
+  margin-left: auto; display: flex; gap: 6px;
+  background: var(--input); border-radius: 8px; padding: 3px;
+}
+.lang-toggle button {
+  background: none; border: none; color: var(--muted);
+  padding: 6px 12px; border-radius: 6px; font-size: 0.8rem; cursor: pointer;
+}
+.lang-toggle button.active {
+  background: var(--accent); color: #0f172a; font-weight: 600;
+}
+.chat-container {
+  flex: 1; overflow-y: auto; padding: 16px; max-width: 720px;
+  width: 100%; margin: 0 auto; display: flex; flex-direction: column; gap: 12px;
+  padding-bottom: 100px;
+}
+.msg {
+  max-width: 85%; padding: 12px 16px; border-radius: 16px;
+  font-size: 0.9rem; line-height: 1.5; white-space: pre-wrap;
+  animation: fadeIn 0.3s ease;
+}
+@keyframes fadeIn { from { opacity:0; transform: translateY(8px); } to { opacity:1; transform: translateY(0); } }
+.msg.user {
+  align-self: flex-end; background: var(--accent); color: #0f172a;
+  border-bottom-right-radius: 4px;
+}
+.msg.bot {
+  align-self: flex-start; background: var(--card); border: 1px solid #334155;
+  border-bottom-left-radius: 4px;
+}
+.msg.bot.alert { border-color: var(--warn); }
+.msg .intent-tag {
+  display: inline-block; font-size: 0.65rem; padding: 2px 8px;
+  border-radius: 4px; background: var(--input); color: var(--muted);
+  margin-bottom: 6px;
+}
+.suggestions {
+  display: flex; gap: 8px; flex-wrap: wrap; padding: 0 16px; max-width: 720px;
+  width: 100%; margin: 0 auto 8px;
+}
+.suggestion {
+  background: var(--card); border: 1px solid #475569; color: var(--accent);
+  padding: 6px 14px; border-radius: 20px; font-size: 0.8rem; cursor: pointer;
+  white-space: nowrap; transition: all 0.2s;
+}
+.suggestion:hover { background: var(--accent); color: #0f172a; }
+.input-bar {
+  position: fixed; bottom: 0; left: 0; right: 0;
+  background: var(--bg); border-top: 1px solid #334155;
+  padding: 12px 16px; display: flex; gap: 8px; max-width: 720px;
+  margin: 0 auto; align-items: center;
+}
+.input-bar textarea {
+  flex: 1; background: var(--input); border: 1px solid #475569;
+  color: var(--text); border-radius: 12px; padding: 10px 14px;
+  font-size: 0.9rem; resize: none; outline: none; max-height: 100px;
+  font-family: inherit;
+}
+.input-bar textarea:focus { border-color: var(--accent); }
+.voice-btn {
+  width: 44px; height: 44px; border-radius: 50%; border: none;
+  background: var(--card); border: 1px solid #475569; color: var(--text);
+  font-size: 20px; cursor: pointer; flex-shrink: 0; display: flex;
+  align-items: center; justify-content: center; transition: all 0.2s;
+}
+.voice-btn:hover { background: var(--accent); color: #0f172a; }
+.voice-btn.recording { background: var(--danger); color: white; animation: pulse 1s infinite; }
+@keyframes pulse { 0%,100%{transform:scale(1);} 50%{transform:scale(1.1);} }
+.send-btn {
+  width: 44px; height: 44px; border-radius: 50%; border: none;
+  background: var(--accent); color: #0f172a; font-size: 20px;
+  cursor: pointer; flex-shrink: 0; display: flex; align-items: center;
+  justify-content: center;
+}
+.send-btn:hover { background: var(--accent2); }
+.send-btn:disabled { opacity: 0.5; cursor: default; }
+.typing { display: inline-block; }
+.typing span {
+  display: inline-block; width: 8px; height: 8px; border-radius: 50%;
+  background: var(--muted); margin: 0 2px; animation: bounce 1.4s infinite;
+}
+.typing span:nth-child(2) { animation-delay: 0.2s; }
+.typing span:nth-child(3) { animation-delay: 0.4s; }
+@keyframes bounce {
+  0%,60%,100%{transform:translateY(0);} 30%{transform:translateY(-8px);}
+}
+.alert-badge {
+  display: inline-block; padding: 2px 8px; border-radius: 4px;
+  font-size: 0.7rem; font-weight: 600; margin-bottom: 4px;
+}
+.alert-Red { background: var(--danger); color: white; }
+.alert-Orange { background: var(--warn); color: #0f172a; }
+.alert-Yellow { background: #facc15; color: #0f172a; }
+.status-bar {
+  font-size: 0.7rem; color: var(--muted); text-align: center;
+  padding: 4px; background: #1a2332;
+}
+
+/* About / Description panel */
+.about-panel {
+  max-width: 720px; margin: 0 auto; padding: 0 16px 8px;
+}
+.about-toggle {
+  display: flex; align-items: center; gap: 6px; cursor: pointer;
+  color: var(--muted); font-size: 0.8rem; padding: 6px 0;
+  user-select: none;
+}
+.about-toggle:hover { color: var(--accent); }
+.about-toggle .arrow { transition: transform 0.2s; display: inline-block; }
+.about-toggle.open .arrow { transform: rotate(90deg); }
+.about-content {
+  display: none; background: var(--card); border: 1px solid #334155;
+  border-radius: 12px; padding: 16px; margin-top: 4px;
+  font-size: 0.82rem; line-height: 1.6; color: var(--muted);
+}
+.about-content.open { display: block; }
+.about-content h3 { color: var(--text); font-size: 0.9rem; margin-bottom: 8px; }
+.about-content p { margin-bottom: 8px; }
+.about-content ul { margin: 4px 0 8px 18px; }
+.about-content li { margin-bottom: 3px; }
+.about-content a { color: var(--accent); text-decoration: none; }
+.about-content .tag {
+  display: inline-block; background: var(--input); color: var(--accent);
+  padding: 2px 8px; border-radius: 4px; font-size: 0.7rem; margin: 2px;
+}
+.about-content .grid {
+  display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin-top: 8px;
+}
+.about-content .grid div {
+  background: var(--input); padding: 6px 10px; border-radius: 8px;
+  font-size: 0.75rem;
+}
+</style>
+</head>
+<body>
+
+<!-- ═══════════════════════════════════════════════════════════════════════════
+     UI LAYOUT
+     ═══════════════════════════════════════════════════════════════════════════ -->
+
+<div class="header">
+  <div class="logo">🌦️</div>
+  <div>
+    <h1>WeatherGPT</h1>
+    <div class="sub">Conversational AI for Weather Forecasting & Alerts</div>
+  </div>
+  <div class="lang-toggle">
+    <button id="langEn" class="active" onclick="setLang('en')">EN</button>
+    <button id="langHi" onclick="setLang('hi')">हिं</button>
+  </div>
+</div>
+
+<div class="chat-container" id="chat">
+  <div class="msg bot">👋 Welcome to WeatherGPT! I'm your AI weather assistant. Ask me about:
+    <br><br>• Current weather for any city<br>
+    • Multi-day forecasts<br>
+    • Severe weather alerts & warnings<br>
+    • Farming / agricultural advisories<br>
+    • Aviation weather briefings<br>
+    • Climate trends<br><br>
+    Try: "Will it rain tomorrow in Mumbai?" or "कल मौसम कैसा रहेगा दिल्ली में?"</div>
+</div>
+
+<div class="suggestions">
+  <div class="suggestion" onclick="ask('What is the weather in Delhi right now?')">Weather in Delhi</div>
+  <div class="suggestion" onclick="ask('Will it rain tomorrow in Mumbai?')">Rain in Mumbai?</div>
+  <div class="suggestion" onclick="ask('Any weather alerts for Kolkata?')">Alerts for Kolkata</div>
+  <div class="suggestion" onclick="ask('Agricultural advisory for Pune')">Farm advisory Pune</div>
+  <div class="suggestion" onclick="ask('Aviation weather for Chennai')">Aviation Chennai</div>
+  <div class="suggestion" onclick="ask('कल मौसम कैसा रहेगा जयपुर में?')">जयपुर मौसम</div>
+</div>
+
+<!-- ═══ ABOUT / DESCRIPTION PANEL ═══ -->
+<div class="about-panel">
+  <div class="about-toggle" id="aboutToggle" onclick="toggleAbout()">
+    <span class="arrow">▶</span> About WeatherGPT
+  </div>
+  <div class="about-content" id="aboutContent">
+    <h3>🌦️ WeatherGPT — Conversational AI for Weather Forecasting, Alerts & Climate Information</h3>
+
+    <p><strong>Problem Statement:</strong> SIH 2026 — SIH26068<br>
+    <strong>Organization:</strong> Ministry of Earth Sciences (MoES)<br>
+    <strong>Department:</strong> India Meteorological Department (IMD)<br>
+    <strong>Theme:</strong> Disaster Management · <strong>Category:</strong> Software</p>
+
+    <p>WeatherGPT is an AI-powered conversational platform that integrates meteorological
+    datasets, forecasting models, and disaster warning systems to provide accurate,
+    contextual, and multilingual weather intelligence through a chat interface. It runs
+    entirely in the browser — no server, no API key, no installation required.</p>
+
+    <h3>Key Features</h3>
+    <ul>
+      <li><strong>Real-time weather retrieval</strong> — current temperature, humidity, wind, conditions for any city worldwide</li>
+      <li><strong>Natural language querying</strong> — ask in plain English or Hindi ("Will it rain tomorrow in Mumbai?")</li>
+      <li><strong>NWP model integration</strong> — data from Open-Meteo API (GFS/ICON global model output), extensible to WRF</li>
+      <li><strong>Extreme weather alerts</strong> — IMD-style colour-coded warnings (Red / Orange / Yellow) for heatwaves, heavy rainfall, thunderstorms, cold waves, and strong winds</li>
+      <li><strong>Location-based forecasting</strong> — geocoding resolves any place name to coordinates for 16-day forecasts</li>
+      <li><strong>Multilingual support</strong> — English + Hindi (Devanagari script and romanized Hinglish)</li>
+      <li><strong>Climate trend analysis</strong> — historical archive data with average temperature and rainfall summaries</li>
+      <li><strong>Voice-enabled interaction</strong> — Web Speech API for hands-free queries (hi-IN / en-IN), designed for rural accessibility</li>
+    </ul>
+
+    <h3>Use Cases</h3>
+    <div class="grid">
+      <div>🌾 <strong>Farmers</strong> — crop-weather advisories, irrigation & spraying guidance</div>
+      <div>✈️ <strong>Aviation</strong> — visibility, ceiling, wind briefings for pilots</div>
+      <div>⚠️ <strong>Disaster managers</strong> — severe weather alerts & early warnings</div>
+      <div>📊 <strong>Researchers</strong> — climate trend & historical data analysis</div>
+      <div>🏙️ <strong>Smart cities</strong> — real-time weather monitoring</div>
+      <div>👥 <strong>General public</strong> — daily weather, rain forecasts, planning</div>
+    </div>
+
+    <h3>Architecture (4 modules in one file)</h3>
+    <ul>
+      <li><strong>Module 1 — WeatherService:</strong> Open-Meteo API integration (geocoding, forecast, historical archive, IMD-style alert detection engine)</li>
+      <li><strong>Module 2 — NLU Engine:</strong> Natural language understanding — intent classification, location entity extraction (100+ Indian cities + Devanagari), language detection, time parsing</li>
+      <li><strong>Module 3 — ResponseGen:</strong> Multilingual natural language response generation — current weather, forecasts, alerts, agricultural advisories, aviation briefings, climate summaries</li>
+      <li><strong>Module 4 — App Controller:</strong> Chat UI logic, voice input (Web Speech API), message rendering, error handling with JSONP fallback for CORS</li>
+    </ul>
+
+    <h3>Technology</h3>
+    <p>
+      <span class="tag">HTML/CSS/JS</span>
+      <span class="tag">Open-Meteo API</span>
+      <span class="tag">Web Speech API</span>
+      <span class="tag">JSONP fallback</span>
+      <span class="tag">Mobile-first</span>
+      <span class="tag">No dependencies</span>
+    </p>
+
+    <h3>How to Run</h3>
+    <p>Just open this HTML file in any modern browser (Chrome/Edge recommended for voice input).
+    If network requests are blocked by CORS (common when opening via <code>file://</code>),
+    run a local server:</p>
+    <p><code>python -m http.server 8000</code> → then open <code>http://localhost:8000/WeatherGPT.html</code></p>
+
+    <p style="margin-top:12px; font-size:0.72rem; color:#64748b;">
+      WeatherGPT v1.0 · SIH 2026 (SIH26068) · Ministry of Earth Sciences / IMD ·
+      Weather data: Open-Meteo (open-source, no API key)
+    </p>
+  </div>
+</div>
+
+<div class="input-bar">
+  <button class="voice-btn" id="voiceBtn" onclick="toggleVoice()" title="Voice input">🎤</button>
+  <textarea id="input" placeholder="Ask about weather..." rows="1"
+    onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();sendMsg();}"
+    oninput="autoResize(this)"></textarea>
+  <button class="send-btn" id="sendBtn" onclick="sendMsg()" title="Send">➤</button>
+</div>
+
+<div class="status-bar" id="statusBar">WeatherGPT v1.0 · Powered by Open-Meteo API · SIH 2026 SIH26068</div>
+
+
+<!-- ═══════════════════════════════════════════════════════════════════════════
+     MODULE 1: WEATHER DATA SERVICE  (ported from weather_service.py)
+     ═══════════════════════════════════════════════════════════════════════════ -->
+<script>
+const WeatherService = (function() {
+
+  const OPEN_METEO_GEO = "https://geocoding-api.open-meteo.com/v1/search";
+  const OPEN_METEO_FCST = "https://api.open-meteo.com/v1/forecast";
+  const OPEN_METEO_ARCHIVE = "https://archive-api.open-meteo.com/v1/archive";
+
+  // JSONP fallback — works even from file:// protocol where CORS blocks fetch()
+  function jsonp(url) {
+    return new Promise((resolve, reject) => {
+      const cbName = "__wgpt_cb_" + Date.now() + "_" + Math.floor(Math.random() * 100000);
+      const script = document.createElement("script");
+      const timeout = setTimeout(() => {
+        delete window[cbName];
+        script.remove();
+        reject(new Error("Request timed out"));
+      }, 15000);
+      window[cbName] = function(data) {
+        clearTimeout(timeout);
+        delete window[cbName];
+        script.remove();
+        resolve(data);
+      };
+      const sep = url.includes("?") ? "&" : "?";
+      script.src = url + sep + "callback=" + cbName;
+      script.onerror = function() {
+        clearTimeout(timeout);
+        delete window[cbName];
+        script.remove();
+        reject(new Error("Network request failed"));
+      };
+      document.head.appendChild(script);
+    });
+  }
+
+  // Try fetch first; if it fails (CORS on file://), fall back to JSONP
+  async function fetchJSON(url) {
+    try {
+      const resp = await fetch(url, { mode: "cors" });
+      if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+      return await resp.json();
+    } catch (fetchErr) {
+      // fetch failed — likely CORS on file:// protocol, try JSONP
+      return await jsonp(url);
+    }
+  }
+
+  // IMD-style thresholds (India Meteorological Department colour-coded warnings)
+  const ALERT_THRESHOLDS = {
+    heatwave:      { tmax: 43.0, level: "Red",    advice: "Extreme heat. Avoid outdoor exposure 11am-4pm. Stay hydrated." },
+    severe_heat:   { tmax: 40.0, level: "Orange", advice: "Very hot. Wear light clothing, drink water frequently." },
+    cold_wave:     { tmax: 10.0, level: "Orange", advice: "Cold wave. Wear warm layers, protect livestock and crops." },
+    heavy_rain:    { precip: 64.5, level: "Red",    advice: "Heavy to very heavy rainfall expected. Risk of waterlogging. Avoid low-lying areas." },
+    moderate_rain: { precip: 35.0, level: "Yellow", advice: "Moderate rain expected. Carry an umbrella; drive carefully." },
+    strong_wind:   { wind: 50.0, level: "Yellow", advice: "Strong winds expected. Secure loose outdoor objects." },
+    thunderstorm:  { cape: 800.0, level: "Orange", advice: "Thunderstorm likely. Avoid open areas and tall trees." },
+  };
+
+  // WMO weather code descriptions (English + Hindi)
+  const WMO_CODES = {
+    0:["Clear sky","साफ आसमान"], 1:["Mainly clear","ज़्यादातर साफ"],
+    2:["Partly cloudy","आंशिक बादल"], 3:["Overcast","बादल से घिरा"],
+    45:["Fog","कोहरा"], 48:["Rime fog","हिमीय कोहरा"],
+    51:["Light drizzle","हल्की बूंदाबांदी"], 53:["Drizzle","बूंदाबांदी"], 55:["Dense drizzle","घनी बूंदाबांदी"],
+    61:["Light rain","हल्की बारिश"], 63:["Rain","बारिश"], 65:["Heavy rain","भारी बारिश"],
+    66:["Freezing rain","बर्फ़ीली बारिश"], 67:["Freezing rain","बर्फ़ीली बारिश"],
+    71:["Light snow","हल्की बर्फ़बारी"], 73:["Snow","बर्फ़बारी"], 75:["Heavy snow","भारी बर्फ़बारी"], 77:["Snow grains","बर्फ़ के कण"],
+    80:["Rain showers","बारिश की झड़ी"], 81:["Rain showers","बारिश की झड़ी"], 82:["Violent rain showers","तेज बारिश की झड़ी"],
+    85:["Snow showers","बर्फ़ की झड़ी"], 86:["Snow showers","बर्फ़ की झड़ी"],
+    95:["Thunderstorm","गरज के साथ बारिश"], 96:["Thunderstorm + hail","ओले के साथ गरज"], 99:["Severe thunderstorm + hail","तेज ओले के साथ गरज"],
+  };
+
+  function describeCode(code, lang) {
+    const entry = WMO_CODES[code] || ["Unknown","अज्ञात"];
+    return lang === "hi" ? entry[1] : entry[0];
+  }
+
+  function windDirection(deg) {
+    const dirs = [["N",22.5],["NE",67.5],["E",112.5],["SE",157.5],["S",202.5],["SW",247.5],["W",292.5],["NW",337.5],["N",360]];
+    for (const [label, bound] of dirs) { if (deg <= bound) return label; }
+    return "N";
+  }
+
+  async function geocode(place) {
+    const url = `${OPEN_METEO_GEO}?name=${encodeURIComponent(place)}&count=1&language=en&format=json`;
+    const data = await fetchJSON(url);
+    if (!data.results || !data.results.length) return null;
+    const g = data.results[0];
+    return {
+      name: g.name, country: g.country || "", admin1: g.admin1 || "",
+      latitude: g.latitude, longitude: g.longitude, timezone: g.timezone || "Asia/Kolkata"
+    };
+  }
+
+  async function fetchForecast(geo, days) {
+    days = Math.min(Math.max(days||7, 1), 16);
+    const params = new URLSearchParams({
+      latitude: geo.latitude, longitude: geo.longitude,
+      timezone: geo.timezone || "Asia/Kolkata",
+      current: "temperature_2m,apparent_temperature,relative_humidity_2m,wind_speed_10m,wind_direction_10m,precipitation,weather_code,is_day",
+      hourly: "temperature_2m,precipitation,precipitation_probability,wind_speed_10m,relative_humidity_2m,weather_code,cape",
+      daily: "weather_code,temperature_2m_max,temperature_2m_min,precipitation_sum,wind_speed_10m_max,sunrise,sunset,precipitation_probability_max",
+      forecast_days: days,
+    });
+    const url = `${OPEN_METEO_FCST}?${params.toString()}`;
+    const data = await fetchJSON(url);
+
+    // Parse current
+    const cur = data.current || {};
+    const current = {
+      temperature_c: cur.temperature_2m || 0,
+      apparent_temp_c: cur.apparent_temperature || 0,
+      humidity_pct: cur.relative_humidity_2m || 0,
+      wind_speed_kmh: cur.wind_speed_10m || 0,
+      wind_direction: cur.wind_direction_10m || 0,
+      precipitation_mm: cur.precipitation || 0,
+      weather_code: cur.weather_code || 0,
+      is_day: !!cur.is_day,
+      time: cur.time || "",
+    };
+
+    // Parse hourly (future only)
+    const hourly = [];
+    const h = data.hourly || {};
+    if (h.time) {
+      const nowIso = new Date().toISOString().slice(0,16);
+      for (let i = 0; i < h.time.length; i++) {
+        if (h.time[i] < nowIso) continue;
+        hourly.push({
+          time: h.time[i], temp_c: h.temperature_2m[i],
+          precip_mm: h.precipitation[i],
+          precip_prob_pct: (h.precipitation_probability && h.precipitation_probability[i]) || 0,
+          wind_kmh: h.wind_speed_10m[i], humidity_pct: h.relative_humidity_2m[i],
+          weather_code: h.weather_code[i],
+        });
+      }
+    }
+
+    // Parse daily
+    const daily = [];
+    const d = data.daily || {};
+    if (d.time) {
+      for (let i = 0; i < d.time.length; i++) {
+        daily.push({
+          date: d.time[i], tmax_c: d.temperature_2m_max[i], tmin_c: d.temperature_2m_min[i],
+          precip_sum_mm: d.precipitation_sum[i], wind_max_kmh: d.wind_speed_10m_max[i],
+          sunrise: d.sunrise[i], sunset: d.sunset[i], weather_code: d.weather_code[i],
+          precip_prob_pct: (d.precipitation_probability_max && d.precipitation_probability_max[i]) || 0,
+        });
+      }
+    }
+
+    const bundle = { location: geo, current, hourly, daily, raw: data, alerts: [] };
+    bundle.alerts = detectAlerts(bundle);
+    return bundle;
+  }
+
+  function detectAlerts(bundle) {
+    const alerts = [];
+    if (!bundle.daily || !bundle.daily.length) return alerts;
+    const today = bundle.daily[0];
+
+    // Heat
+    if (today.tmax_c >= ALERT_THRESHOLDS.heatwave.tmax)
+      alerts.push({ type:"heatwave", level:ALERT_THRESHOLDS.heatwave.level, title:"Heatwave Alert", advice:ALERT_THRESHOLDS.heatwave.advice, valid_for:today.date });
+    else if (today.tmax_c >= ALERT_THRESHOLDS.severe_heat.tmax)
+      alerts.push({ type:"severe_heat", level:ALERT_THRESHOLDS.severe_heat.level, title:"Very High Temperature", advice:ALERT_THRESHOLDS.severe_heat.advice, valid_for:today.date });
+
+    // Cold wave
+    if (today.tmax_c <= ALERT_THRESHOLDS.cold_wave.tmax)
+      alerts.push({ type:"cold_wave", level:ALERT_THRESHOLDS.cold_wave.level, title:"Cold Wave Alert", advice:ALERT_THRESHOLDS.cold_wave.advice, valid_for:today.date });
+
+    // Rain
+    if (today.precip_sum_mm >= ALERT_THRESHOLDS.heavy_rain.precip)
+      alerts.push({ type:"heavy_rain", level:ALERT_THRESHOLDS.heavy_rain.level, title:"Heavy Rainfall Warning", advice:ALERT_THRESHOLDS.heavy_rain.advice, valid_for:today.date });
+    else if (today.precip_sum_mm >= ALERT_THRESHOLDS.moderate_rain.precip)
+      alerts.push({ type:"moderate_rain", level:ALERT_THRESHOLDS.moderate_rain.level, title:"Moderate Rainfall", advice:ALERT_THRESHOLDS.moderate_rain.advice, valid_for:today.date });
+
+    // Wind
+    if (today.wind_max_kmh >= ALERT_THRESHOLDS.strong_wind.wind)
+      alerts.push({ type:"strong_wind", level:ALERT_THRESHOLDS.strong_wind.level, title:"Strong Wind Warning", advice:ALERT_THRESHOLDS.strong_wind.advice, valid_for:today.date });
+
+    // Thunderstorm (CAPE)
+    const rawH = bundle.raw.hourly || {};
+    const capes = rawH.cape || [];
+    if (capes.length) {
+      const maxCape = Math.max(...capes.slice(0, Math.min(24, capes.length)));
+      if (maxCape >= ALERT_THRESHOLDS.thunderstorm.cape)
+        alerts.push({ type:"thunderstorm", level:ALERT_THRESHOLDS.thunderstorm.level, title:"Thunderstorm Warning", advice:ALERT_THRESHOLDS.thunderstorm.advice, valid_for:bundle.daily[0].date });
+    }
+
+    // WMO thunderstorm codes
+    for (let i = 0; i < Math.min(2, bundle.daily.length); i++) {
+      if (bundle.daily[i].weather_code >= 95) {
+        if (!alerts.find(a => a.type === "thunderstorm"))
+          alerts.push({ type:"thunderstorm", level:"Orange", title:"Thunderstorm Warning", advice:ALERT_THRESHOLDS.thunderstorm.advice, valid_for:bundle.daily[i].date });
+        break;
+      }
+    }
+
+    // Dedup by type
+    const seen = new Set();
+    return alerts.filter(a => { if (seen.has(a.type)) return false; seen.add(a.type); return true; });
+  }
+
+  async function fetchHistorical(geo, startDate, endDate) {
+    const params = new URLSearchParams({
+      latitude: geo.latitude, longitude: geo.longitude,
+      start_date: startDate, end_date: endDate,
+      daily: "temperature_2m_max,temperature_2m_min,precipitation_sum", timezone: "auto",
+    });
+    const url = `${OPEN_METEO_ARCHIVE}?${params.toString()}`;
+    return await fetchJSON(url);
+  }
+
+  async function getWeather(place, days) {
+    const geo = await geocode(place);
+    if (!geo) throw new Error(`Could not find location: ${place}`);
+    return await fetchForecast(geo, days);
+  }
+
+  return { geocode, fetchForecast, fetchHistorical, getWeather, detectAlerts, describeCode, windDirection, WMO_CODES };
+})();
+</script>
+
+
+<!-- ═══════════════════════════════════════════════════════════════════════════
+     MODULE 2: NLU ENGINE  (ported from nlu.py)
+     ═══════════════════════════════════════════════════════════════════════════ -->
+<script>
+const NLU = (function() {
+
+  const INTENT_KEYWORDS = {
+    current_weather: ["now","currently","right now","today weather","aaj mausam","current","abhi","temperature now","kitni garmi"],
+    forecast: ["tomorrow","kal","forecast","week","days ahead","coming days","will it rain","barish hogi","aage","7 din","5 day"],
+    alert_check: ["alert","warning","danger","chetavani","any warning","cyclone","cyclone alert","flood","heatwave","loo","storm","toofan","bandobast"],
+    agricultural: ["farm","crop","irrigate","khet","fasal","paani dena","agriculture","agricultural","advisory","harvest","sow","boi","kisan","spray","soil","fertilizer","khad","krishi","kheti"],
+    climate_trend: ["trend","climate","historical","past year","change","global warming","10 year","benchmark","average","pattern","itne saal"],
+    aviation_briefing: ["aviation","flight","pilot","airport","runway","visibility","ceiling","metar","udan","hawai"],
+  };
+
+  const INDIAN_PLACES = [
+    "delhi","new delhi","mumbai","bombay","kolkata","calcutta","chennai","madras",
+    "bangalore","bengaluru","hyderabad","pune","ahmedabad","jaipur","lucknow",
+    "kanpur","nagpur","surat","indore","bhopal","patna","vadodara","baroda",
+    "ghaziabad","ludhiana","agra","nashik","faridabad","meerut","rajkot",
+    "varanasi","benares","kashi","srinagar","aurangabad","jodhpur","amritsar",
+    "noida","gurgaon","gurugram","coimbatore","jabalpur","guwahati","chandigarh",
+    "shimla","dehradun","bhubaneswar","thiruvananthapuram","trivandrum",
+    "panaji","gangtok","itanagar","aizawl","kohima","imphal","shillong",
+    "agartala","dispur","raipur","ranchi","mathura","vrindavan","haridwar",
+    "rishikesh","cuttack","visakhapatnam","vizag","vijayawada","tirupati",
+    "mysore","mysuru","mangalore","mangaluru","hubli","madurai","trichy",
+    "tiruchirapalli","salem","kochi","cochin","kozhikode","calicut","thrissur",
+    "goa","margao","jammu","katra","leh","ladakh","kargil","porbandar",
+    "bhavnagar","jamnagar","junagadh","ajmer","udaipur","jaisalmer","bikaner",
+    "alwar","kota","gwalior","ujjain","sagar","ratlam","prayagraj","allahabad",
+    "gorakhpur","bareilly","aligarh","moradabad","darbhanga","bhagalpur",
+    "muzaffarpur","gaya","purnia","dhanbad","bokaro","jamshedpur","hazaribagh",
+    "berhampur","sambalpur","rourkela","dibrugarh","jorhat","tezpur","silchar",
+    "dilli","kalkatta","chenmai","mumbai"
+  ];
+
+  function detectLanguage(text) {
+    // Devanagari script
+    if (/[\u0900-\u097F]/.test(text)) return "hi";
+    const lower = text.toLowerCase();
+    const hindiWords = ["aaj","kal","mausam","barish","garmi","kya","hai","hoga","hogi","khet","fasal","chetavani","toofan","abhi"];
+    const count = hindiWords.filter(w => lower.includes(w)).length;
+    return count >= 1 ? "hi" : "en";
+  }
+
+  function extractLocation(text) {
+    const lower = text.toLowerCase();
+
+    // 1. Direct place match FIRST (most reliable for known Indian places)
+    const sortedPlaces = [...INDIAN_PLACES].sort((a,b) => b.length - a.length);
+    for (const place of sortedPlaces) {
+      const re = new RegExp("\\b" + place.replace(/[.*+?^${}()|[\]\\]/g, "\\$&") + "\\b");
+      if (re.test(lower)) return place;
+    }
+
+    // 2. Pattern: "in <place>", "at <place>", "near <place>"
+    const patterns = [
+      /\b(?:in|at|near)\s+([a-z][a-z\s]+?)(?:\s+(?:weather|mausam|temperature|forecast|alert|warning|raining|climate|today|tomorrow|this week|now|right)\b|[,.!?]|$)/,
+      /\bfor\s+([a-z][a-z\s]+?)(?:\s+(?:weather|mausam|temperature|forecast|alert|warning|advisory|climate|raining|today|tomorrow|this week|now|right)\b|[,.!?]|$)/,
+      /\b([a-z][a-z\s]+?)\s+(?:weather|mausam|temperature|forecast|alert|warning|climate)\b/,
+    ];
+    for (const pat of patterns) {
+      const m = lower.match(pat);
+      if (m) {
+        const candidate = m[1].trim().replace(/[?,.]+$/, "");
+        if (["the","my","what","how","is","will","any","me","right"].includes(candidate)) continue;
+        return candidate;
+      }
+    }
+
+    // 3. Devanagari pattern: "जयपुर में", "दिल्ली का मौसम", "मुंबई की"
+    const devaMatch = text.match(/([\u0900-\u097F]+)(?:\s+में|\s+का|\s+की)/);
+    if (devaMatch) return devaMatch[1];
+
+    return null;
+  }
+
+  function extractTime(text) {
+    const lower = text.toLowerCase();
+    const timePatterns = [
+      [/\b(today|aaj|अब)\b/, 0, "today"],
+      [/\b(tomorrow|kal|कल)\b/, 1, "tomorrow"],
+      [/\b(day after tomorrow|parso|परसो)\b/, 2, "day after tomorrow"],
+      [/\b(\d+)\s*days?\b/, null, null],
+      [/\b(next week|agle hafte|अगले हफ्ते)\b/, 7, "this week"],
+      [/\b(this week|is hafte|इस हफ्ते)\b/, 7, "this week"],
+    ];
+    for (const [pat, offset, label] of timePatterns) {
+      const m = lower.match(pat);
+      if (m) {
+        if (offset !== null) return { offset, label };
+        const n = parseInt(m[1]);
+        return { offset: n, label: `${n} days` };
+      }
+    }
+    if (lower.includes("week") || lower.includes("hafte")) return { offset: 7, label: "this week" };
+    return { offset: 0, label: "today" };
+  }
+
+  function classifyIntent(text) {
+    const lower = text.toLowerCase();
+    const scores = {};
+    for (const [intent, keywords] of Object.entries(INTENT_KEYWORDS)) {
+      const score = keywords.filter(kw => lower.includes(kw)).length;
+      if (score > 0) scores[intent] = score;
+    }
+    if (Object.keys(scores).length === 0) return "current_weather";
+    if (/\b(will it rain|barish hogi|rain tomorrow|rain kal)\b/.test(lower)) return "forecast";
+    return Object.entries(scores).sort((a,b) => b[1]-a[1])[0][0];
+  }
+
+  function parseQuery(text) {
+    return {
+      intent: classifyIntent(text),
+      location: extractLocation(text),
+      timeOffset: extractTime(text).offset,
+      timeLabel: extractTime(text).label,
+      language: detectLanguage(text),
+      rawQuery: text,
+    };
+  }
+
+  return { parseQuery, detectLanguage, extractLocation, classifyIntent };
+})();
+</script>
+
+
+<!-- ═══════════════════════════════════════════════════════════════════════════
+     MODULE 3: RESPONSE GENERATOR  (ported from response_gen.py)
+     ═══════════════════════════════════════════════════════════════════════════ -->
+<script>
+const ResponseGen = (function() {
+
+  const r = (v, dp=0) => parseFloat(v).toFixed(dp);
+
+  function generateCurrentWeather(bundle, lang) {
+    const c = bundle.current, loc = bundle.location;
+    const desc = WeatherService.describeCode(c.weather_code, lang);
+    const wdir = WeatherService.windDirection(c.wind_direction);
+    if (lang === "hi") {
+      return `📍 ${loc.name}, ${loc.admin1} (${loc.country})\n`
+        + `🌡️ तापमान: ${r(c.temperature_c)}°C (महसूस होता ${r(c.apparent_temp_c)}°C)\n`
+        + `☁️ स्थिति: ${desc}\n`
+        + `💧 नमी: ${r(c.humidity_pct)}%\n`
+        + `🌬️ हवा: ${r(c.wind_speed_kmh)} किमी/घं, दिशा ${wdir}\n`
+        + `🌧️ वर्षा: ${r(c.precipitation_mm)} मिमी\n`
+        + `🕐 समय: ${c.time}`;
+    }
+    return `📍 ${loc.name}, ${loc.admin1} (${loc.country})\n`
+      + `🌡️ Temperature: ${r(c.temperature_c)}°C (feels like ${r(c.apparent_temp_c)}°C)\n`
+      + `☁️ Conditions: ${desc}\n`
+      + `💧 Humidity: ${r(c.humidity_pct)}%\n`
+      + `🌬️ Wind: ${r(c.wind_speed_kmh)} km/h ${wdir}\n`
+      + `🌧️ Precipitation: ${r(c.precipitation_mm)} mm\n`
+      + `🕐 Time: ${c.time}`;
+  }
+
+  function generateForecast(bundle, days, lang) {
+    if (!bundle.daily || !bundle.daily.length) return "Forecast data is not available at the moment.";
+    const loc = bundle.location;
+    const n = Math.min(days, bundle.daily.length);
+    if (lang === "hi") {
+      const lines = [`📅 ${loc.name} — ${n}-दिनीय पूर्वानुमान:\n`];
+      for (const d of bundle.daily.slice(0, n)) {
+        const desc = WeatherService.describeCode(d.weather_code, "hi");
+        lines.push(`• ${d.date}: ${desc} | न्यून/अधिकतम: ${r(d.tmin_c)}°/${r(d.tmax_c)}°C | वर्षा: ${r(d.precip_sum_mm)} मिमी (${r(d.precip_prob_pct)}% संभावना) | हवा: ${r(d.wind_max_kmh)} किमी/घं`);
+      }
+      return lines.join("\n");
+    }
+    const lines = [`📅 ${loc.name} — ${n}-day Forecast:\n`];
+    for (const d of bundle.daily.slice(0, n)) {
+      const desc = WeatherService.describeCode(d.weather_code, "en");
+      lines.push(`• ${d.date}: ${desc} | Low/High: ${r(d.tmin_c)}°/${r(d.tmax_c)}°C | Rain: ${r(d.precip_sum_mm)}mm (${r(d.precip_prob_pct)}% chance) | Wind: ${r(d.wind_max_kmh)} km/h`);
+    }
+    return lines.join("\n");
+  }
+
+  function generateAlerts(bundle, lang) {
+    if (!bundle.alerts || !bundle.alerts.length) {
+      return lang === "hi"
+        ? `✅ ${bundle.location.name}: कोई गंभीर मौसम चेतावनी नहीं। सुरक्षित स्थिति।`
+        : `✅ ${bundle.location.name}: No severe weather warnings. All clear.`;
+    }
+    if (lang === "hi") {
+      const lines = [`⚠️ ${bundle.location.name} — सक्रिय चेतावनियाँ:\n`];
+      for (const a of bundle.alerts) lines.push(`🔴 [${a.level}] ${a.title} — ${a.advice}`);
+      lines.push("\nकृपया स्थानीय प्राधिकारियों और IMD बुलेटिन का पालन करें।");
+      return lines.join("\n");
+    }
+    const lines = [`⚠️ ${bundle.location.name} — Active Weather Warnings:\n`];
+    for (const a of bundle.alerts) lines.push(`🔴 [${a.level}] ${a.title} — ${a.advice}`);
+    lines.push("\nPlease follow local authorities and IMD bulletins.");
+    return lines.join("\n");
+  }
+
+  function generateAgriculturalAdvisory(bundle, lang) {
+    if (!bundle.daily || !bundle.daily.length) return "Cannot generate advisory without forecast data.";
+    const today = bundle.daily[0];
+    const tomorrow = bundle.daily[1] || today;
+    const loc = bundle.location;
+    const advisories = [];
+    const rainExpected = today.precip_sum_mm > 5 || tomorrow.precip_sum_mm > 5;
+    const heavyRain = today.precip_sum_mm > 64 || tomorrow.precip_sum_mm > 64;
+    const highTemp = today.tmax_c > 40;
+    const lowTemp = today.tmin_c < 10;
+    const highWind = today.wind_max_kmh > 35;
+
+    if (lang === "hi") {
+      const lines = [`🌾 कृषि सलाह — ${loc.name}:\n`];
+      if (heavyRain) advisories.push("🚫 भारी बारिश की संभावना — सिंचाई रोकें, फसल की कटाई में देरी न करें।");
+      else if (rainExpected) advisories.push("💧 बारिश की संभावना है — सिंचाई आवश्यक नहीं। नाले साफ रखें।");
+      else advisories.push("🚿 वर्षा नहीं होगी — सिंचाई कर सकते हैं (मृदा नमी की जाँच करें)।");
+      if (highTemp) advisories.push("🔥 अत्यधिक गर्मी — पशुओं को छाया और पानी दें। दोपहर में खेत में काम न करें।");
+      if (lowTemp) advisories.push("❄️ ठंड की संभावना — फसल को ढकने पर विचार करें। सिंचाई ठंड से बचाती है।");
+      if (highWind) advisories.push("🌬️ तेज हवा — छोटे पौधों को आधार दें। रसायन छिड़काव टालें।");
+      else if (!rainExpected) advisories.push("🧪 कीटनाशक छिड़काव के लिए अनुकूल मौसम।");
+      const sr = today.sunrise.includes("T") ? today.sunrise.split("T")[1] : today.sunrise;
+      advisories.push(`🌅 सूर्योदय: ${sr}`);
+      lines.push(...advisories);
+      return lines.join("\n");
+    }
+
+    const lines = [`🌾 Agricultural Advisory — ${loc.name}:\n`];
+    if (heavyRain) advisories.push("🚫 Heavy rain expected — hold irrigation, harvest mature crops immediately.");
+    else if (rainExpected) advisories.push("💧 Rain expected — no irrigation needed. Clear field drains.");
+    else advisories.push("🚿 No rain forecast — irrigation recommended (check soil moisture first).");
+    if (highTemp) advisories.push("🔥 Extreme heat — provide shade and water to livestock. Avoid field work at noon.");
+    if (lowTemp) advisories.push("❄️ Cold conditions — consider covering crops. Light irrigation protects from frost.");
+    if (highWind) advisories.push("🌬️ Strong wind — stake young plants. Postpone chemical spraying.");
+    else if (!rainExpected) advisories.push("🧪 Favourable weather for pesticide application.");
+    const sr = today.sunrise.includes("T") ? today.sunrise.split("T")[1] : today.sunrise;
+    advisories.push(`🌅 Sunrise: ${sr}`);
+    lines.push(...advisories);
+    return lines.join("\n");
+  }
+
+  function generateAviationBriefing(bundle, lang) {
+    const c = bundle.current, loc = bundle.location;
+    let visibility, ceiling;
+    if ([45,48].includes(c.weather_code)) { visibility = "500-1000m (fog — below minimums)"; ceiling = "200-500ft BKN/OVC"; }
+    else if ([51,53,55].includes(c.weather_code)) { visibility = "3-5km (drizzle)"; ceiling = ">10000ft or clear"; }
+    else if ([61,63,65,80,81,82].includes(c.weather_code)) { visibility = "2-4km (rain)"; ceiling = ">10000ft or clear"; }
+    else if (c.weather_code >= 95) { visibility = "1-3km (thunderstorm — CB)"; ceiling = "1000-3000ft BKN"; }
+    else { visibility = ">10km (CAVOK-ish)"; ceiling = ">10000ft or clear"; }
+    if (c.weather_code === 3) ceiling = "200-500ft BKN/OVC";
+    else if (c.weather_code === 2) ceiling = "3000-5000ft SCT";
+
+    if (lang === "hi") {
+      return `✈️ विमानन मौसम ब्रीफिंग — ${loc.name} (${loc.latitude.toFixed(2)}, ${loc.longitude.toFixed(2)})\n`
+        + `🌡️ तापमान: ${c.temperature_c}°C\n`
+        + `🌬️ हवा: ${c.wind_speed_kmh.toFixed(0)} किमी/घं (${WeatherService.windDirection(c.wind_direction)})\n`
+        + `👁️ दृश्यता: ${visibility}\n`
+        + `☁️ छत: ${ceiling}\n`
+        + `💧 नमी: ${c.humidity_pct.toFixed(0)}%\n`
+        + `🌧️ वर्षा: ${c.precipitation_mm.toFixed(1)} मिमी`;
+    }
+    return `✈️ Aviation Weather Briefing — ${loc.name} (${loc.latitude.toFixed(2)}, ${loc.longitude.toFixed(2)})\n`
+      + `🌡️ Temperature: ${c.temperature_c}°C\n`
+      + `🌬️ Wind: ${c.wind_speed_kmh.toFixed(0)} km/h (${WeatherService.windDirection(c.wind_direction)})\n`
+      + `👁️ Visibility: ${visibility}\n`
+      + `☁️ Ceiling: ${ceiling}\n`
+      + `💧 Humidity: ${c.humidity_pct.toFixed(0)}%\n`
+      + `🌧️ Precipitation: ${c.precipitation_mm.toFixed(1)} mm`;
+  }
+
+  function generateClimateSummary(historical, lang) {
+    const daily = historical.daily || {};
+    const tmax = daily.temperature_2m_max || [];
+    const tmin = daily.temperature_2m_min || [];
+    const precip = daily.precipitation_sum || [];
+    if (!tmax.length) return "Climate data unavailable.";
+    const avgMax = tmax.reduce((a,b)=>a+b,0)/tmax.length;
+    const avgMin = tmin.reduce((a,b)=>a+b,0)/tmin.length;
+    const totalRain = precip.reduce((a,b)=>a+b,0);
+    const dates = daily.time || [];
+    const period = dates.length ? `${dates[0]} to ${dates[dates.length-1]}` : "selected period";
+    if (lang === "hi") {
+      return `📊 जलवायु विश्लेषण (${period}):\n`
+        + `औसत अधिकतम तापमान: ${avgMax.toFixed(1)}°C\n`
+        + `औसत न्यूनतम तापमान: ${avgMin.toFixed(1)}°C\n`
+        + `कुल वर्षा: ${totalRain.toFixed(1)} मिमी`;
+    }
+    return `📊 Climate Analysis (${period}):\n`
+      + `Average max temperature: ${avgMax.toFixed(1)}°C\n`
+      + `Average min temperature: ${avgMin.toFixed(1)}°C\n`
+      + `Total rainfall: ${totalRain.toFixed(1)} mm`;
+  }
+
+  function generateResponse(intent, bundle, historical) {
+    const lang = intent.language;
+    let alertPrefix = "";
+    if (bundle && bundle.alerts && bundle.alerts.length && intent.intent !== "alert_check") {
+      alertPrefix = generateAlerts(bundle, lang) + "\n\n";
+    }
+
+    switch (intent.intent) {
+      case "current_weather":
+        return bundle ? alertPrefix + generateCurrentWeather(bundle, lang) : "I couldn't fetch current weather. Please specify a city.";
+      case "forecast": {
+        if (!bundle) return "I couldn't fetch the forecast. Please specify a city.";
+        const days = intent.timeOffset > 0 ? Math.max(intent.timeOffset + 1, 3) : 7;
+        return alertPrefix + generateForecast(bundle, days, lang);
+      }
+      case "alert_check":
+        return bundle ? generateAlerts(bundle, lang) : "I couldn't fetch alert data. Please specify a city.";
+      case "agricultural":
+        return bundle ? generateAgriculturalAdvisory(bundle, lang) : "I couldn't fetch farm advisory data. Please specify a city.";
+      case "aviation_briefing":
+        return bundle ? generateAviationBriefing(bundle, lang) : "I couldn't fetch aviation weather. Please specify a city.";
+      case "climate_trend":
+        return historical ? generateClimateSummary(historical, lang) : "Please specify a location and time range for climate analysis.";
+      default:
+        return bundle ? alertPrefix + generateCurrentWeather(bundle, lang)
+          : "I'm WeatherGPT — your conversational weather assistant. Ask me about weather, forecasts, alerts, farming advice, or aviation briefings for any city. Try: 'Will it rain tomorrow in Pune?'";
+    }
+  }
+
+  return { generateResponse, generateCurrentWeather, generateForecast, generateAlerts,
+           generateAgriculturalAdvisory, generateAviationBriefing, generateClimateSummary };
+})();
+</script>
+
+
+<!-- ═══════════════════════════════════════════════════════════════════════════
+     MODULE 4: APP CONTROLLER + CHAT UI LOGIC  (ported from app.py)
+     ═══════════════════════════════════════════════════════════════════════════ -->
+<script>
+let lang = "en";
+let isRecording = false;
+let recognition = null;
+
+function setLang(l) {
+  lang = l;
+  document.getElementById("langEn").classList.toggle("active", l === "en");
+  document.getElementById("langHi").classList.toggle("active", l === "hi");
+  document.getElementById("input").placeholder = l === "hi" ? "मौसम के बारे में पूछें..." : "Ask about weather...";
+}
+
+function autoResize(el) {
+  el.style.height = "auto";
+  el.style.height = Math.min(el.scrollHeight, 100) + "px";
+}
+
+function addMsg(text, isUser, intentName, alerts) {
+  const chat = document.getElementById("chat");
+  const div = document.createElement("div");
+  div.className = "msg " + (isUser ? "user" : "bot") + (alerts && alerts.length ? " alert" : "");
+
+  let html = "";
+  if (!isUser && intentName) {
+    html += '<span class="intent-tag">' + intentName + "</span>";
+  }
+  if (!isUser && alerts && alerts.length) {
+    alerts.forEach(a => {
+      html += '<span class="alert-badge alert-' + a.level + '">⚠ ' + a.level + "</span> ";
+    });
+    html += "<br>";
+  }
+  html += text.replace(/\n/g, "<br>");
+  div.innerHTML = html;
+  chat.appendChild(div);
+  chat.scrollTop = chat.scrollHeight;
+}
+
+function showTyping() {
+  const chat = document.getElementById("chat");
+  const div = document.createElement("div");
+  div.className = "msg bot";
+  div.id = "typing-indicator";
+  div.innerHTML = '<div class="typing"><span></span><span></span><span></span></div>';
+  chat.appendChild(div);
+  chat.scrollTop = chat.scrollHeight;
+}
+
+function hideTyping() {
+  const t = document.getElementById("typing-indicator");
+  if (t) t.remove();
+}
+
+function ask(query) {
+  document.getElementById("input").value = query;
+  sendMsg();
+}
+
+function toggleAbout() {
+  const toggle = document.getElementById("aboutToggle");
+  const content = document.getElementById("aboutContent");
+  toggle.classList.toggle("open");
+  content.classList.toggle("open");
+}
+
+// ── Main chat handler (equivalent to POST /chat) ──────────────────────────────
+async function sendMsg() {
+  const input = document.getElementById("input");
+  const text = input.value.trim();
+  if (!text) return;
+
+  addMsg(text, true);
+  input.value = "";
+  input.style.height = "auto";
+
+  document.getElementById("sendBtn").disabled = true;
+  showTyping();
+
+  try {
+    // 1. Parse the natural language query
+    const intent = NLU.parseQuery(text);
+
+    // Allow language override from UI toggle
+    if (lang === "hi") intent.language = "hi";
+
+    let bundle = null;
+    let historical = null;
+
+    try {
+      if (intent.location) {
+        if (intent.intent === "climate_trend") {
+          // Fetch historical archive data for the past year
+          const end = new Date();
+          const start = new Date(end);
+          start.setFullYear(start.getFullYear() - 1);
+          const geo = await WeatherService.geocode(intent.location);
+          if (geo) {
+            historical = await WeatherService.fetchHistorical(
+              geo,
+              start.toISOString().slice(0, 10),
+              end.toISOString().slice(0, 10)
+            );
+          }
+        } else {
+          const days = intent.intent === "forecast"
+            ? Math.max(intent.timeOffset + 2, 7)
+            : 7;
+          bundle = await WeatherService.getWeather(intent.location, days);
+        }
+      } else {
+        // No location → default to Delhi
+        intent.location = "Delhi";
+        bundle = await WeatherService.getWeather("Delhi", 7);
+      }
+    } catch (fetchErr) {
+      hideTyping();
+      addMsg("⚠️ Sorry, I couldn't fetch weather data.\n\nError: " + fetchErr.message +
+             "\n\nThis usually happens because:\n" +
+             "• The browser blocked the network request (CORS).\n" +
+             "  Fix: Run a local server — open a terminal in the same folder and run:\n" +
+             "  python -m http.server 8000\n" +
+             "  Then open http://localhost:8000/WeatherGPT.html\n\n" +
+             "• Or you're offline — check your internet connection.", false);
+      document.getElementById("sendBtn").disabled = false;
+      return;
+    }
+
+    // 2. Generate the natural language response
+    const responseText = ResponseGen.generateResponse(intent, bundle, historical);
+
+    // 3. Extract alerts for UI badges
+    const alertList = [];
+    if (bundle && bundle.alerts) {
+      for (const a of bundle.alerts) {
+        alertList.push({ type: a.type, level: a.level, title: a.title, advice: a.advice, valid_for: a.valid_for });
+      }
+    }
+
+    hideTyping();
+    addMsg(responseText, false, intent.intent, alertList);
+
+  } catch (err) {
+    hideTyping();
+    console.error("WeatherGPT error:", err);
+    addMsg("⚠️ Something went wrong: " + err.message +
+           "\n\nPlease check the browser console (F12) for details.", false);
+  }
+
+  document.getElementById("sendBtn").disabled = false;
+}
+
+// ── Voice input using Web Speech API ─────────────────────────────────────────
+function toggleVoice() {
+  const btn = document.getElementById("voiceBtn");
+  const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+  if (!SR) {
+    alert("Voice input not supported in this browser. Try Chrome or Edge.");
+    return;
+  }
+
+  if (isRecording) {
+    if (recognition) recognition.stop();
+    return;
+  }
+
+  recognition = new SR();
+  recognition.lang = lang === "hi" ? "hi-IN" : "en-IN";
+  recognition.interimResults = false;
+  recognition.maxAlternatives = 1;
+
+  recognition.onstart = () => {
+    isRecording = true;
+    btn.classList.add("recording");
+    btn.textContent = "⏹";
+  };
+
+  recognition.onresult = (event) => {
+    const transcript = event.results[0][0].transcript;
+    document.getElementById("input").value = transcript;
+    autoResize(document.getElementById("input"));
+  };
+
+  recognition.onerror = (event) => {
+    console.error("Voice error:", event.error);
+  };
+
+  recognition.onend = () => {
+    isRecording = false;
+    btn.classList.remove("recording");
+    btn.textContent = "🎤";
+  };
+
+  recognition.start();
+}
+
+// Auto-scroll on load
+window.addEventListener("load", () => {
+  const chat = document.getElementById("chat");
+  chat.scrollTop = chat.scrollHeight;
+});
+</script>
+
+</body>
+</html>

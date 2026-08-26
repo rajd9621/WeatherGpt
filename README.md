@@ -101,19 +101,5 @@ git commit -m "Add WeatherGPT — conversational AI weather tool (SIH 2026)"
 git branch -M main
 git push -u origin main
 ```
-Optional: Enable GitHub Pages
-Go to your repo → Settings → Pages
-Source: Deploy from a branch → main → / (root)
-Save — your app will be live at `https://<your-username>.github.io/WeatherGPT/WeatherGPT.html`
-🗺️ Roadmap / Future Enhancements
-[ ] Integrate IMD's official bulletin & cyclone warning feeds
-[ ] Add Indian language support (Hindi, Tamil, Bengali, etc.)
-[ ] Voice input/output
-[ ] Disaster manager dashboard with map overlays
-[ ] Historical climate data queries
-[ ] Push notification alerts for subscribed locations
-[ ] Integration with LLM for more natural conversations
-📄 License
-This project is built for the Smart India Hackathon 2026. Open-Meteo data is licensed under CC BY 4.0.
----
+
 Built for SIH 2026 · Ministry of Earth Sciences · India Meteorological Department
